@@ -1,10 +1,10 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const listeners={},audio={src:'music/stage1-v5.mp3',paused:true,currentTime:0,play(){this.paused=false;return Promise.resolve()},pause(){this.paused=true},addEventListener(){}};
-const elements={},classes={add(){},remove(){}};let draws=[];
+const elements={},tones=[],vibrations=[];let draws=[];
 const gradient={addColorStop(){}};const ctx=new Proxy({drawImage(img){draws.push(img.src)},createLinearGradient(){return gradient},createRadialGradient(){return gradient}}, {get(target,key){return key in target?target[key]:(()=>{})},set(target,key,value){target[key]=value;return true}});
-function el(id){if(id==='bgm')return audio;return elements[id]||(elements[id]={textContent:'',innerHTML:'',hidden:false,classList:classes,attrs:{},setAttribute(k,v){this.attrs[k]=v},addEventListener(type,fn){listeners[id+':'+type]=fn},setPointerCapture(){},getBoundingClientRect(){return{width:480,height:720}}})};el('game').getContext=()=>ctx;
+function el(id){if(id==='bgm')return audio;const names=new Set();return elements[id]||(elements[id]={textContent:'',innerHTML:'',hidden:false,classList:{add(...v){v.forEach(x=>names.add(x))},remove(...v){v.forEach(x=>names.delete(x))},contains(v){return names.has(v)}},attrs:{},setAttribute(k,v){this.attrs[k]=v},addEventListener(type,fn){listeners[id+':'+type]=fn},setPointerCapture(){},getBoundingClientRect(){return{width:480,height:720}}})};el('game').getContext=()=>ctx;
 const storage={};
-const sandbox={document:{getElementById:el},window:{addEventListener(){},AudioContext:function(){this.state='running';this.currentTime=0;this.destination={};this.createOscillator=()=>({frequency:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(x){return x},start(){},stop(){}});this.createGain=()=>({gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}})}},localStorage:{getItem(k){return Object.hasOwn(storage,k)?storage[k]:null},setItem(k,v){storage[k]=String(v)}},Image:function(){this.complete=true;this.naturalWidth=384;this.naturalHeight=384;this.width=384;this.height=384},requestAnimationFrame(){},Math,console};
+const sandbox={document:{getElementById:el},window:{addEventListener(){},AudioContext:function(){this.state='running';this.currentTime=0;this.destination={};this.createOscillator=()=>{const osc={frequency:{setValueAtTime(value){osc.hz=value},exponentialRampToValueAtTime(){}},connect(x){return x},start(time){tones.push({hz:osc.hz,type:osc.type,time})},stop(){}};return osc};this.createGain=()=>({gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}})}},navigator:{vibrate(pattern){vibrations.push(Array.from(pattern));return true}},localStorage:{getItem(k){return Object.hasOwn(storage,k)?storage[k]:null},setItem(k,v){storage[k]=String(v)}},Image:function(){this.complete=true;this.naturalWidth=384;this.naturalHeight=384;this.width=384;this.height=384},requestAnimationFrame(){},Math,console};
 vm.createContext(sandbox);vm.runInContext(fs.readFileSync('dist/game.js','utf8'),sandbox);const run=x=>vm.runInContext(x,sandbox);
 listeners['preview2:click']();assert.match(audio.src,/stage2-v5/);listeners['preview3:click']();assert.match(audio.src,/stage3-v5/);run('start()');assert.match(audio.src,/stage1-v5/);assert.equal(run('game.player.power'),1);
 // Power tiers and focus mode must have visibly different projectile shapes and trajectories.
@@ -131,3 +131,23 @@ for(let stage=1;stage<=3;stage++)for(const kind of ['mid','end']){
  highDifficultyPeak=Math.max(highDifficultyPeak,result.max);
 }
 console.log(`PASS: six difficulty levels, original level 1, saved selection, locked runs and level 6 encounters (peak ${highDifficultyPeak} bullets)`);
+
+// Pickups and actual damage provide distinct feedback, including muted and unsupported devices.
+run("state='title';selectDifficulty(1);start();game.spawn=Infinity;game.player.shot=Infinity;game.player.inv=99;game.bombs=1");
+tones.length=0;
+run("game.items.push({x:game.player.x,y:game.player.y,vy:0,type:'power'});update(.01)");
+const powerNotes=tones.map(t=>t.hz);assert.equal(powerNotes.length,3);assert.equal(run('game.player.power'),2);
+assert.ok(tones[0].time<tones[1].time&&tones[1].time<tones[2].time);
+tones.length=0;
+run("game.items.push({x:game.player.x,y:game.player.y,vy:0,type:'bomb'});update(.01)");
+assert.equal(run('game.bombs'),2);assert.equal(tones.length,3);assert.notDeepEqual(tones.map(t=>t.hz),powerNotes);
+tones.length=0;vibrations.length=0;
+run("game.player.inv=0;game.bullets.push({x:game.player.x,y:game.player.y,vx:0,vy:0,r:5,age:0});update(.01)");
+assert.equal(run('game.lives'),2);assert.equal(tones.length,2);assert.equal(vibrations.length,1);assert.ok(el('game').classList.contains('hit-shake'));
+run('hit()');assert.equal(run('game.lives'),2);assert.equal(tones.length,2);assert.equal(vibrations.length,1);
+listeners['game:animationend']({animationName:'hit-shake'});assert.equal(el('game').classList.contains('hit-shake'),false);
+tones.length=0;run("soundOn=false;game.items.push({x:game.player.x,y:game.player.y,vy:0,type:'bomb'});update(.01);game.player.inv=0;hit()");
+assert.equal(tones.length,0);assert.equal(vibrations.length,2);assert.equal(run('game.lives'),1);
+sandbox.navigator.vibrate=undefined;run('game.player.inv=0;hit()');assert.equal(run('state'),'over');
+sandbox.navigator.vibrate=()=>{throw new Error('unsupported')};run("state='title';start();game.player.inv=0;hit()");assert.equal(run('game.lives'),2);
+console.log('PASS: distinct P/B pickup tones, muted sounds, hit shake and vibration, invulnerability, and unsupported vibration');
