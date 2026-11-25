@@ -75,4 +75,4 @@ python3 tests/music-structure.test.py
 
 ## 部署與版本
 
-既有網站的 `.openai/hosting.json` 將 `dist/` 指定為靜態部署目錄。更新網站時應沿用原有 Site 專案，先將變更納入 Git 版本，再從同一版原始碼封裝並發布。請保留 `.openai/hosting.json` 與配樂授權文件；不要將登入憑證加入儲存庫。
+既有網站的 `.openai/hosting.json` 將 `dist/` 指定為靜態部署目錄。更新網站時應沿用原有 Site 專案，先將變更納入 Git 版本，再從同一版原始碼封裝並發布。修改 `game.js` 或 `style.css` 時，請一併更新 `index.html` 中對應檔案的版本參數，避免瀏覽器沿用舊快取。請保留 `.openai/hosting.json` 與配樂授權文件；不要將登入憑證加入儲存庫。
