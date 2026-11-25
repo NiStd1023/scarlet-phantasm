@@ -3,7 +3,8 @@ const listeners={},audio={src:'music/stage1-v5.mp3',paused:true,currentTime:0,pl
 const elements={},classes={add(){},remove(){}};let draws=[];
 const gradient={addColorStop(){}};const ctx=new Proxy({drawImage(img){draws.push(img.src)},createLinearGradient(){return gradient},createRadialGradient(){return gradient}}, {get(target,key){return key in target?target[key]:(()=>{})},set(target,key,value){target[key]=value;return true}});
 function el(id){if(id==='bgm')return audio;return elements[id]||(elements[id]={textContent:'',innerHTML:'',hidden:false,classList:classes,attrs:{},setAttribute(k,v){this.attrs[k]=v},addEventListener(type,fn){listeners[id+':'+type]=fn},setPointerCapture(){},getBoundingClientRect(){return{width:480,height:720}}})};el('game').getContext=()=>ctx;
-const sandbox={document:{getElementById:el},window:{addEventListener(){},AudioContext:function(){this.state='running';this.currentTime=0;this.destination={};this.createOscillator=()=>({frequency:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(x){return x},start(){},stop(){}});this.createGain=()=>({gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}})}},localStorage:{getItem(){return null},setItem(){}},Image:function(){this.complete=true;this.naturalWidth=384;this.naturalHeight=384;this.width=384;this.height=384},requestAnimationFrame(){},Math,console};
+const storage={};
+const sandbox={document:{getElementById:el},window:{addEventListener(){},AudioContext:function(){this.state='running';this.currentTime=0;this.destination={};this.createOscillator=()=>({frequency:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(x){return x},start(){},stop(){}});this.createGain=()=>({gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}})}},localStorage:{getItem(k){return Object.hasOwn(storage,k)?storage[k]:null},setItem(k,v){storage[k]=String(v)}},Image:function(){this.complete=true;this.naturalWidth=384;this.naturalHeight=384;this.width=384;this.height=384},requestAnimationFrame(){},Math,console};
 vm.createContext(sandbox);vm.runInContext(fs.readFileSync('dist/game.js','utf8'),sandbox);const run=x=>vm.runInContext(x,sandbox);
 listeners['preview2:click']();assert.match(audio.src,/stage2-v5/);listeners['preview3:click']();assert.match(audio.src,/stage3-v5/);run('start()');assert.match(audio.src,/stage1-v5/);assert.equal(run('game.player.power'),1);
 // Power tiers and focus mode must have visibly different projectile shapes and trajectories.
@@ -90,3 +91,43 @@ for(let stage=1;stage<=3;stage++)for(const kind of ['mid','end']){
   highestCount=Math.max(highestCount,result.max);
 }
 console.log(`PASS: six 20-second boss encounters remain bounded (peak ${highestCount} bullets)`);
+
+// The original difficulty is the default; choices persist and lock during a run.
+run("state='title';selectDifficulty(1)");
+assert.equal(el('difficulty').value,'1');assert.equal(el('difficultyLabel').textContent,'難度 Lv.1');
+listeners['difficulty:change']({target:{value:'4'}});
+assert.equal(storage['scarlet-difficulty'],'4');assert.equal(el('difficultyLabel').textContent,'難度 Lv.4');
+run('start()');assert.equal(run('game.difficulty'),4);assert.equal(el('difficultyControls').hidden,true);
+run('selectDifficulty(6)');assert.equal(run('game.difficulty'),4);assert.equal(run('selectedDifficulty'),4);
+run('pause()');assert.equal(el('difficultyControls').hidden,true);run('selectDifficulty(2)');assert.equal(run('selectedDifficulty'),4);
+run('finish(false)');assert.equal(el('difficultyControls').hidden,false);
+run('selectDifficulty(99)');assert.equal(run('selectedDifficulty'),1);
+
+const difficultyStats=[];
+for(let level=1;level<=6;level++){
+  run(`state='title';selectDifficulty(${level});start()`);
+  assert.equal(run('game.difficulty'),level);assert.equal(el('difficultyLabel').textContent,`難度 Lv.${level}`);
+  run('game.player.inv=999;game.player.shot=Infinity;game.spawn=0;update(.01)');
+  const spawnInterval=run('game.spawn');
+  run("game.enemies=[];enemy();game.enemies[0].kind=0;game.bullets=[];enemyPattern(game.enemies[0])");
+  const enemyShots=run('game.bullets.length'),speed=run('Math.hypot(game.bullets[0].vx,game.bullets[0].vy)');
+  run("game.bullets=[];spawnBoss('mid');game.boss.y=115;game.boss.shot=0;update(.01)");
+  difficultyStats.push({spawnInterval,enemyShots,speed,hp:run('game.boss.max'),bossInterval:run('game.boss.shot'),burst:run('game.bullets.length')});
+}
+assert.ok(Math.abs(difficultyStats[0].spawnInterval-1.2)<1e-9&&Math.abs(difficultyStats[0].speed-112)<1e-9);
+assert.equal(difficultyStats[0].enemyShots,5);assert.equal(difficultyStats[0].hp,260);
+assert.equal(difficultyStats[0].bossInterval,1.15);assert.equal(difficultyStats[0].burst,24);
+for(let i=1;i<difficultyStats.length;i++){
+ const a=difficultyStats[i-1],b=difficultyStats[i];
+ assert.ok(b.speed>a.speed&&b.hp>a.hp&&b.spawnInterval<a.spawnInterval&&b.bossInterval<a.bossInterval);
+ assert.ok(b.enemyShots>=a.enemyShots&&b.burst>a.burst);
+}
+// Long simulations at the highest setting exercise all boss styles and rage.
+let highDifficultyPeak=0;
+for(let stage=1;stage<=3;stage++)for(const kind of ['mid','end']){
+ run(`state='title';selectDifficulty(6);start();game.stage=${stage};spawnBoss('${kind}');game.boss.y=115;game.player.inv=999;game.player.shot=Infinity;if(${stage}===3&&'${kind}'==='end')game.boss.hp=game.boss.max*.4`);
+ const result=run(`(()=>{let max=0;for(let i=0;i<1200;i++){update(1/60);max=Math.max(max,game.bullets.length)}return {max,phases:game.boss.phase,valid:game.bullets.every(z=>Number.isFinite(z.x)&&Number.isFinite(z.y))}})()`);
+ assert.ok(result.phases>=4&&result.valid&&result.max<420,`unbounded level 6 encounter ${stage} ${kind}`);
+ highDifficultyPeak=Math.max(highDifficultyPeak,result.max);
+}
+console.log(`PASS: six difficulty levels, original level 1, saved selection, locked runs and level 6 encounters (peak ${highDifficultyPeak} bullets)`);

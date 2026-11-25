@@ -5,6 +5,30 @@ const art=new Image();art.src='key-art.png';
 const sprites={};
 for(const key of ['player','player_cast','enemy','enemy_cast','midboss','boss1','boss2','boss3','boss3_rage']){const img=new Image();img.src='assets/'+key+'.webp';sprites[key]=img;}
 let state='title', prev=0, game, dragging=false, lastPointer=null, focusTouch=false, soundOn=true, audio=null;
+// Level 1 is the original game. Each later level increases pressure while
+// keeping the same boss identities, player hitbox, lives, and BOMB rules.
+const DIFFICULTY_LEVELS=[
+ {name:'初見',description:'原有難度・適合熟悉操作',speed:1,density:1,bossHp:1,enemyHp:1,spawn:1,enemyInterval:1,bossInterval:1,extraEnemy:0},
+ {name:'緋光',description:'敵彈稍快・頭目攻勢提高',speed:1.05,density:1.06,bossHp:1.08,enemyHp:1.05,spawn:.96,enemyInterval:.96,bossInterval:.96,extraEnemy:0},
+ {name:'幻舞',description:'敵方火力與彈幕密度增加',speed:1.10,density:1.12,bossHp:1.18,enemyHp:1.10,spawn:.91,enemyInterval:.91,bossInterval:.91,extraEnemy:1},
+ {name:'狂瀾',description:'敵人更密集・頭目更持久',speed:1.16,density:1.20,bossHp:1.30,enemyHp:1.16,spawn:.86,enemyInterval:.86,bossInterval:.86,extraEnemy:1},
+ {name:'血月',description:'高速彈幕・需要精準閃避',speed:1.22,density:1.29,bossHp:1.43,enemyHp:1.22,spawn:.81,enemyInterval:.81,bossInterval:.81,extraEnemy:2},
+ {name:'終焉',description:'極限火力・挑戰彈幕極限',speed:1.30,density:1.40,bossHp:1.58,enemyHp:1.30,spawn:.75,enemyInterval:.75,bossInterval:.75,extraEnemy:2}
+];
+const difficultyLevel=value=>{const n=Number(value);return Number.isInteger(n)&&n>=1&&n<=DIFFICULTY_LEVELS.length?n:1};
+let selectedDifficulty=1;
+try{selectedDifficulty=difficultyLevel(localStorage.getItem('scarlet-difficulty'))}catch(e){}
+function difficultySettings(){return DIFFICULTY_LEVELS[difficultyLevel(game&&game.difficulty)-1]}
+function selectDifficulty(value){
+ if(state==='play'||state==='pause')return;
+ selectedDifficulty=difficultyLevel(value);
+ $('difficulty').value=String(selectedDifficulty);
+ $('difficultyInfo').textContent=DIFFICULTY_LEVELS[selectedDifficulty-1].description;
+ $('difficultyLabel').textContent='難度 Lv.'+selectedDifficulty;
+ try{localStorage.setItem('scarlet-difficulty',String(selectedDifficulty))}catch(e){}
+}
+$('difficulty').addEventListener('change',e=>selectDifficulty(e.target.value));
+selectDifficulty(selectedDifficulty);
 const musicAudio=$('bgm');
 musicAudio.loop=true; musicAudio.preload='auto'; musicAudio.volume=.8;
 let musicTrack='stage1', musicBlocked=false, musicRequest=0, previewing=false;
@@ -41,19 +65,19 @@ for(let i=1;i<=3;i++)$('preview'+i).addEventListener('click',()=>previewMusic(i)
 let high=0;try{high=Number(localStorage.getItem('scarlet-high'))||0}catch(e){}; $('high').textContent=String(high).padStart(8,'0');
 function sound(freq=440,duration=.09,type='sine',vol=.035,slide=1){if(!soundOn||!audio)return;let t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,t);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*slide),t+duration);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+duration);o.connect(g).connect(audio.destination);o.start(t);o.stop(t+duration+.01)}
 function initAudio(){try{if(!audio)audio=new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume()}catch(e){}}
-function reset(){game={stage:1,time:0,score:0,lives:3,bombs:3,player:{x:W/2,y:H-105,inv:2,shot:0,power:1,cast:0,lean:0,shotGlow:0,hurt:0,focus:false,volley:0},bullets:[],shots:[],enemies:[],items:[],particles:[],stars:Array.from({length:50},()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.7+.4,v:Math.random()*30+10})),spawn:1,enemyCount:0,mid:false,end:false,boss:null,flash:0,background:0};updateHUD()}
-function updateHUD(){$('lives').textContent='♥ '.repeat(game.lives).trim()||'—';$('bombs').textContent='✦ '.repeat(game.bombs).trim()||'—';$('score').textContent=String(game.score).padStart(8,'0');$('weapon').textContent='Lv. '+game.player.power;$('stageLabel').textContent=`STAGE 0${game.stage}`;$('stageName').textContent=['霧之森','緋月之庭','紅月終焉'][game.stage-1];$('high').textContent=String(Math.max(high,game.score)).padStart(8,'0')}
+function reset(){game={difficulty:selectedDifficulty,stage:1,time:0,score:0,lives:3,bombs:3,player:{x:W/2,y:H-105,inv:2,shot:0,power:1,cast:0,lean:0,shotGlow:0,hurt:0,focus:false,volley:0},bullets:[],shots:[],enemies:[],items:[],particles:[],stars:Array.from({length:50},()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.7+.4,v:Math.random()*30+10})),spawn:1,enemyCount:0,mid:false,end:false,boss:null,flash:0,background:0};updateHUD()}
+function updateHUD(){$('lives').textContent='♥ '.repeat(game.lives).trim()||'—';$('bombs').textContent='✦ '.repeat(game.bombs).trim()||'—';$('score').textContent=String(game.score).padStart(8,'0');$('weapon').textContent='Lv. '+game.player.power;$('stageLabel').textContent=`STAGE 0${game.stage}`;$('stageName').textContent=['霧之森','緋月之庭','紅月終焉'][game.stage-1];$('difficultyLabel').textContent='難度 Lv.'+game.difficulty;$('high').textContent=String(Math.max(high,game.score)).padStart(8,'0')}
 let noticeTimer=0;function notice(text){$('notice').textContent=text;$('notice').classList.add('show');noticeTimer=2.2}
-function start(){initAudio();previewing=false;pauseMusic();musicAudio.currentTime=0;reset();state='play';$('previewControls').hidden=true;playMusic('stage1');$('overlay').classList.add('hidden');$('start').textContent='重新開始 ✦';prev=0;notice('第一關　霧之森')}
-function finish(win){state=win?'win':'over';pauseMusic();$('previewControls').hidden=false;if(game.score>high){high=game.score;try{localStorage.setItem('scarlet-high',String(high))}catch(e){}}updateHUD();$('overlay').classList.remove('hidden');$('overlayText').textContent=win?'紅月落下，結界重新恢復平靜。恭喜通關！':'夜色尚未散去，再次挑戰紅月吧。';$('start').innerHTML=win?'再次挑戰 <span>✦</span>':'重新挑戰 <span>✦</span>';sound(win?660:150,.8,'triangle',.09,win?1.5:.4)}
+function start(){initAudio();previewing=false;pauseMusic();musicAudio.currentTime=0;reset();state='play';$('difficultyControls').hidden=true;$('previewControls').hidden=true;playMusic('stage1');$('overlay').classList.add('hidden');$('start').textContent='重新開始 ✦';prev=0;notice('第一關　霧之森')}
+function finish(win){state=win?'win':'over';pauseMusic();$('difficultyControls').hidden=false;$('previewControls').hidden=false;if(game.score>high){high=game.score;try{localStorage.setItem('scarlet-high',String(high))}catch(e){}}updateHUD();$('overlay').classList.remove('hidden');$('overlayText').textContent=win?'紅月落下，結界重新恢復平靜。恭喜通關！':'夜色尚未散去，再次挑戰紅月吧。';$('start').innerHTML=win?'再次挑戰 <span>✦</span>':'重新挑戰 <span>✦</span>';sound(win?660:150,.8,'triangle',.09,win?1.5:.4)}
 function bomb(){if(state!=='play'||game.bombs<=0)return;initAudio();game.bombs--;game.player.inv=3;game.player.cast=1.6;game.bullets=[];game.flash=.65;for(const e of game.enemies)e.hp-=35;if(game.boss)game.boss.hp-=125;for(let i=0;i<40;i++)particle(game.player.x,game.player.y,'#ffd7b6',Math.random()*250);sound(180,.5,'sawtooth',.07,.4);sound(550,.7,'sine',.07,1.9);notice('靈力爆發');updateHUD()}
 function enemy(){
- let x=55+Math.random()*(W-110),hp=[15,20,25][game.stage-1];game.enemyCount++;
+ let x=55+Math.random()*(W-110),hp=Math.round([15,20,25][game.stage-1]*difficultySettings().enemyHp);game.enemyCount++;
  let roll=Math.random(),drop=game.enemyCount%4===0?'power':roll<.18?'bomb':roll<.29?'power':null;
  game.enemies.push({x,y:-30,base:x,hp,max:hp,t:0,phase:Math.random()*6,shot:1+Math.random(),shotPhase:0,drop,kind:Math.random()<.5?0:1,cast:0,hitfx:0})
 }
 function spawnBoss(kind){
- let hp=kind==='mid'?(game.stage===3?360:260):(game.stage===3?780:500);
+ let hp=Math.round((kind==='mid'?(game.stage===3?360:260):(game.stage===3?780:500))*difficultySettings().bossHp);
  game.boss={x:W/2,y:-70,hp,max:hp,t:0,shot:1,kind,phase:0,cast:0,attackType:0,hitfx:0};
  playMusic('boss'+game.stage);
  notice(kind==='mid'?'道中頭目　現身':game.stage===3?'終極頭目　現身':'關卡頭目　現身');
@@ -63,7 +87,8 @@ function spawnBoss(kind){
 const MAX_ENEMY_BULLETS=420;
 function fireBullet(x,y,a,s,color,r=5,{shape='orb',curve=0,curveTime=2.4,weave=0,weaveRate=3,weavePhase=0,boss=false}={}){
  if(game.bullets.length>=MAX_ENEMY_BULLETS)return;
- game.bullets.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,color,r,shape,curve,curveTime,weave,weaveRate,weavePhase,boss,age:0});
+ const speed=s*difficultySettings().speed;
+ game.bullets.push({x,y,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,color,r,shape,curve,curveTime,weave,weaveRate,weavePhase,boss,age:0});
 }
 function advanceEnemyBullet(z,dt){
  // Rotate the velocity gradually: these are actual curved trajectories, not
@@ -83,12 +108,12 @@ function enemyPattern(e){
  const p=game.player,a=Math.atan2(p.y-e.y,p.x-e.x),stage=game.stage,phase=e.shotPhase++;
  if(e.kind===0){
    // Flower fairies release paired curving petals around an aimed center.
-   const half=stage===1?2:3;
+   const half=(stage===1?2:3)+difficultySettings().extraEnemy;
    for(let i=-half;i<=half;i++)fireBullet(e.x,e.y,a+i*.17,105+stage*7,
      i%2?'#ff8eae':'#ffd4ba',4,{shape:'petal',curve:i===0?0:Math.sign(i)*.25,curveTime:1.5});
  }else{
    // The second enemy type sweeps alternating crystal fans across the player.
-   const direction=phase%2?1:-1,half=stage===3?3:2;
+   const direction=phase%2?1:-1,half=(stage===3?3:2)+difficultySettings().extraEnemy;
    for(let i=-half;i<=half;i++)fireBullet(e.x,e.y,a+i*.14,112+stage*8,
      i%2?'#aebeff':'#eed0ff',4,{shape:'crystal',curve:direction*.32,curveTime:1.8});
  }
@@ -112,9 +137,11 @@ function pattern(b){
  const shot=(angle,speed,shape,color,curve=0,weave=0,x=0)=>fireBullet(b.x+x,b.y,angle,speed*boost,color,5,
    {shape,boss:true,curve:curve*(rage?1.12:1),curveTime:2.2,weave,weaveRate:3.2,weavePhase:angle});
  const ring=(n,offset,speed,shape,colors,curve=0,weave=0)=>{
+   n=Math.max(1,Math.round(n*difficultySettings().density));
    for(let i=0;i<n;i++)shot(offset+i*Math.PI*2/n,speed,shape,colors[i%colors.length],typeof curve==='function'?curve(i):curve,weave);
  };
  const fan=(n,center,spread,speed,shape,colors,curve=0,weave=0)=>{
+   n=Math.max(1,Math.round(n*difficultySettings().density));
    for(let i=0;i<n;i++){let q=n===1?0:(i/(n-1)-.5)*2;shot(center+q*spread,speed,shape,colors[i%colors.length],typeof curve==='function'?curve(q,i):curve,weave)}
  };
  const c=profile.accent,d=profile.second,spin=b.t*.34;
@@ -174,11 +201,11 @@ function firePlayerVolley(g,p){
 function update(dt){if(state!=='play')return;let g=game,p=g.player;g.background+=dt;g.flash=Math.max(0,g.flash-dt);p.inv=Math.max(0,p.inv-dt);p.cast=Math.max(0,p.cast-dt);p.hurt=Math.max(0,p.hurt-dt);p.shotGlow=Math.max(0,p.shotGlow-dt);let focus=keys.has('shift')||focusTouch;p.focus=focus;let speed=focus?130:240,dx=(keys.has('arrowright')||keys.has('d')?1:0)-(keys.has('arrowleft')||keys.has('a')?1:0),dy=(keys.has('arrowdown')||keys.has('s')?1:0)-(keys.has('arrowup')||keys.has('w')?1:0);if(dx&&dy){dx*=.707;dy*=.707}p.lean+=(dx*.22-p.lean)*Math.min(1,dt*8);p.x=Math.max(14,Math.min(W-14,p.x+dx*speed*dt));p.y=Math.max(20,Math.min(H-20,p.y+dy*speed*dt));p.shot-=dt;if(p.shot<=0){
  p.shot=.11;p.shotGlow=.10;firePlayerVolley(g,p);
 }
-if(!g.boss){g.time+=dt;g.spawn-=dt;if(g.spawn<=0&&g.time<48){enemy();g.spawn=Math.max(.65,1.35-g.stage*.15)}if(g.time>=20&&!g.mid){g.mid=true;spawnBoss('mid')}else if(g.time>=48&&!g.end){g.end=true;spawnBoss('end')}}
+if(!g.boss){g.time+=dt;g.spawn-=dt;if(g.spawn<=0&&g.time<48){enemy();g.spawn=Math.max(.50,Math.max(.65,1.35-g.stage*.15)*difficultySettings().spawn)}if(g.time>=20&&!g.mid){g.mid=true;spawnBoss('mid')}else if(g.time>=48&&!g.end){g.end=true;spawnBoss('end')}}
 for(const s of g.stars){s.y+=s.v*dt;if(s.y>H){s.y=0;s.x=Math.random()*W}}
 for(const s of g.shots){s.age=(s.age||0)+dt;s.y+=(s.vy||-560)*dt;s.x+=((s.vx||0)+Math.sin(s.age*9+(s.phase||0))*(s.wave||0))*dt}g.shots=g.shots.filter(s=>s.y>-20&&s.x>-20&&s.x<W+20);
-for(const e of g.enemies){e.t+=dt;e.cast=Math.max(0,e.cast-dt);e.hitfx=Math.max(0,e.hitfx-dt);e.y+=55*dt;e.x=e.base+Math.sin(e.t*1.5+e.phase)*35;e.shot-=dt;if(e.shot<=0){e.shot=2.1;e.cast=.45;enemyPattern(e)}}
-let b=g.boss;if(b){b.t+=dt;b.cast=Math.max(0,b.cast-dt);b.hitfx=Math.max(0,b.hitfx-dt);b.y=Math.min(115,b.y+75*dt);b.x=W/2+Math.sin(b.t*.8)*125;b.shot-=dt;if(b.y>=100&&b.shot<=0){pattern(b);b.shot=game.stage===3&&b.kind==='end'?(b.hp<b.max*.5?.60:.76):b.kind==='mid'?1.15:.82}}
+for(const e of g.enemies){e.t+=dt;e.cast=Math.max(0,e.cast-dt);e.hitfx=Math.max(0,e.hitfx-dt);e.y+=55*dt;e.x=e.base+Math.sin(e.t*1.5+e.phase)*35;e.shot-=dt;if(e.shot<=0){e.shot=2.1*difficultySettings().enemyInterval;e.cast=.45;enemyPattern(e)}}
+let b=g.boss;if(b){b.t+=dt;b.cast=Math.max(0,b.cast-dt);b.hitfx=Math.max(0,b.hitfx-dt);b.y=Math.min(115,b.y+75*dt);b.x=W/2+Math.sin(b.t*.8)*125;b.shot-=dt;if(b.y>=100&&b.shot<=0){pattern(b);b.shot=(game.stage===3&&b.kind==='end'?(b.hp<b.max*.5?.60:.76):b.kind==='mid'?1.15:.82)*difficultySettings().bossInterval}}
 for(const s of g.shots){for(const e of g.enemies){if(!s.dead&&Math.hypot(s.x-e.x,s.y-e.y)<17){e.hp-=5*(s.power||1);e.hitfx=.12;s.dead=true;if(g.particles.length<100)particle(s.x,s.y,s.style==='feather'?'#bcd5ff':'#ffe3b6',65)}}if(b&&!s.dead&&Math.hypot(s.x-b.x,s.y-b.y)<32){b.hp-=5*(s.power||1);b.hitfx=.1;s.dead=true;if(g.particles.length<100)particle(s.x,s.y,s.style==='feather'?'#bcd5ff':'#ffe3b6',65)}}
 g.shots=g.shots.filter(s=>!s.dead);g.enemies=g.enemies.filter(e=>{if(e.hp<=0){dieEnemy(e);return false}return e.y<H+50});
 if(b&&b.hp<=0){g.score+=b.kind==='mid'?3000:10000;for(let i=0;i<50;i++)particle(b.x,b.y,['#ff99ad','#ffe5ba','#aabbff'][i%3],Math.random()*220);g.items.push({x:b.x-15,y:b.y,vy:45,type:'bomb'},{x:b.x+15,y:b.y,vy:45,type:'power'});g.bullets=[];g.boss=null;sound(180,.6,'sawtooth',.08,.3);if(b.kind==='end'){
