@@ -34,7 +34,8 @@ const originalDirection=run('Math.atan2(game.bullets[0].vy,game.bullets[0].vx)')
 run('advanceEnemyBullet(game.bullets[0],.2)');
 assert.ok(Math.abs(run('Math.atan2(game.bullets[0].vy,game.bullets[0].vx)')-originalDirection)>.05);
 run('game.bullets=[]; for(let i=0;i<4;i++) pattern(game.boss)');
-assert.deepEqual(Array.from(run('new Set(game.bullets.map(z=>z.shape))')).sort(),['crystal','needle','orb','petal']);
+assert.deepEqual(Array.from(run('new Set(game.bullets.map(z=>z.shape))')).sort(),['moon','star']);
+assert.ok(run('game.bullets.every(z=>z.boss)'));
 assert.ok(run('game.bullets.every(z=>Number.isFinite(z.vx)&&Number.isFinite(z.vy))'));
 run('game.bullets=[]; enemy(); game.enemies[0].y=50; game.enemies[0].kind=0; enemyPattern(game.enemies[0]); game.enemies[0].kind=1; enemyPattern(game.enemies[0])');
 assert.ok(run('game.bullets.some(z=>z.shape==="petal") && game.bullets.some(z=>z.shape==="crystal")'));
@@ -43,3 +44,49 @@ assert.equal(run('game.bullets.length'),420);
 run('game.bullets=[]; game.boss=null; game.enemies=[]; game.spawn=Infinity; game.bullets.push({x:100,y:200,vx:0,vy:0,r:4,age:11.99}); update(.02)');
 assert.equal(run('game.bullets.length'),0);
 console.log('PASS: enemy and boss shapes, curved motion, projectile limit and expiry');
+
+// All six encounters have different identities and four functional spells.
+const signatureShapes=['sigil','butterfly','ward','bat','cross','moon'];
+const spellNames=new Set(), encounterSignatures=new Set();
+for(let stage=1;stage<=3;stage++)for(const kind of ['mid','end']){
+  const index=(stage-1)*2+(kind==='end'?1:0),phaseSignatures=[];
+  run(`start();game.stage=${stage};spawnBoss('${kind}');game.boss.y=115;game.boss.t=2`);
+  for(let phase=0;phase<4;phase++){
+    run('game.bullets=[];pattern(game.boss)');
+    const summary=run(`({name:game.boss.spellName,count:game.bullets.length,
+      shapes:[...new Set(game.bullets.map(z=>z.shape))].sort(),
+      colors:[...new Set(game.bullets.map(z=>z.color))].sort(),
+      boss:game.bullets.every(z=>z.boss),valid:game.bullets.every(z=>Number.isFinite(z.vx)&&Number.isFinite(z.vy)&&z.r>0)})`);
+    assert.ok(summary.name && !spellNames.has(summary.name),`duplicate spell for ${stage} ${kind}`);spellNames.add(summary.name);
+    assert.ok(summary.count>=10&&summary.count<=48,`unexpected burst size ${summary.count}`);
+    assert.ok(summary.boss && summary.valid);
+    assert.ok(summary.shapes.every(s=>!['petal','crystal'].includes(s)),`boss bullets resemble normal enemies`);
+    phaseSignatures.push(`${summary.count}:${Array.from(summary.shapes).join(',')}`);
+    run('for(const z of game.bullets)for(let j=0;j<90;j++)advanceEnemyBullet(z,1/60)');
+    assert.ok(run('game.bullets.every(z=>Number.isFinite(z.x)&&Number.isFinite(z.y))'));
+  }
+  assert.ok(new Set(phaseSignatures).size>=3,`repetitive patterns for ${stage} ${kind}`);
+  run('game.bullets=[];game.boss.phase=0;pattern(game.boss)');
+  assert.ok(run(`game.bullets.some(z=>z.shape==='${signatureShapes[index]}')`));
+  const signature=run(`bossProfile(game.boss).emblem+':'+game.bullets[0].shape+':'+game.bullets[0].color`);
+  assert.ok(!encounterSignatures.has(signature));encounterSignatures.add(signature);
+  run('draw()');
+}
+assert.equal(spellNames.size,24);assert.equal(encounterSignatures.size,6);
+run('game.bullets=[];game.boss.phase=0;game.boss.hp=game.boss.max;pattern(game.boss)');
+const normalFinalCount=run('game.bullets.length'),normalFinalSpeed=run('Math.hypot(game.bullets[0].vx,game.bullets[0].vy)');
+run('game.bullets=[];game.boss.phase=0;game.boss.hp=game.boss.max*.4;pattern(game.boss)');
+assert.ok(run('game.bullets.length')>normalFinalCount);
+assert.ok(run('Math.hypot(game.bullets[0].vx,game.bullets[0].vy)')>normalFinalSpeed);
+run('bomb()');assert.equal(run('game.bullets.length'),0);
+console.log('PASS: six distinct boss identities, 24 spells, finite trajectories, final rage and bomb clearing');
+
+// Exercise the actual update loop for a prolonged encounter without player damage.
+let highestCount=0;
+for(let stage=1;stage<=3;stage++)for(const kind of ['mid','end']){
+  run(`start();game.stage=${stage};spawnBoss('${kind}');game.boss.y=115;game.player.inv=999;game.player.shot=Infinity`);
+  const result=run(`(()=>{let max=0;for(let i=0;i<1200;i++){update(1/60);max=Math.max(max,game.bullets.length)}return {max,phases:game.boss.phase,valid:game.bullets.every(z=>Number.isFinite(z.x)&&Number.isFinite(z.y))}})()`);
+  assert.ok(result.phases>=4&&result.valid&&result.max<=420,`invalid encounter ${stage} ${kind}`);
+  highestCount=Math.max(highestCount,result.max);
+}
+console.log(`PASS: six 20-second boss encounters remain bounded (peak ${highestCount} bullets)`);

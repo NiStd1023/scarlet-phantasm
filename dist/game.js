@@ -61,9 +61,9 @@ function spawnBoss(kind){
 }
 // Keep dense attacks bounded so the game remains responsive on mobile devices.
 const MAX_ENEMY_BULLETS=420;
-function fireBullet(x,y,a,s,color,r=5,{shape='orb',curve=0,curveTime=2.4}={}){
+function fireBullet(x,y,a,s,color,r=5,{shape='orb',curve=0,curveTime=2.4,weave=0,weaveRate=3,weavePhase=0,boss=false}={}){
  if(game.bullets.length>=MAX_ENEMY_BULLETS)return;
- game.bullets.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,color,r,shape,curve,curveTime,age:0});
+ game.bullets.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,color,r,shape,curve,curveTime,weave,weaveRate,weavePhase,boss,age:0});
 }
 function advanceEnemyBullet(z,dt){
  // Rotate the velocity gradually: these are actual curved trajectories, not
@@ -73,7 +73,11 @@ function advanceEnemyBullet(z,dt){
    const step=Math.min(dt,remaining),turn=z.curve*step*(remaining-step*.5)/z.curveTime,c=Math.cos(turn),s=Math.sin(turn),vx=z.vx;
    z.vx=vx*c-z.vy*s;z.vy=vx*s+z.vy*c;
  }
- z.x+=z.vx*dt;z.y+=z.vy*dt;z.age=age+dt;
+ z.x+=z.vx*dt;z.y+=z.vy*dt;
+ // The lateral offset is integrated, not accumulated, so a fluttering bullet
+ // stays bounded around its path even if the frame rate changes.
+ if(z.weave){const v=Math.hypot(z.vx,z.vy)||1,w=z.weave*(Math.sin((age+dt)*z.weaveRate+z.weavePhase)-Math.sin(age*z.weaveRate+z.weavePhase));z.x-=z.vy/v*w;z.y+=z.vx/v*w}
+ z.age=age+dt;
 }
 function enemyPattern(e){
  const p=game.player,a=Math.atan2(p.y-e.y,p.x-e.x),stage=game.stage,phase=e.shotPhase++;
@@ -89,41 +93,68 @@ function enemyPattern(e){
      i%2?'#aebeff':'#eed0ff',4,{shape:'crystal',curve:direction*.32,curveTime:1.8});
  }
 }
+// Each encounter has its own silhouette, palette, spell names, and geometry.
+// Mid-bosses share a sprite but not their spell books.
+const BOSS_PROFILES=[
+ {name:'霧之守護者',accent:'#bcaaff',second:'#8de8f3',emblem:'book',spells:['霧書・環形符印','幻羽交錯','秘典・流光雨','霧晶星軌']},
+ {name:'霧之幻影',accent:'#a8ebf0',second:'#d6b9ff',emblem:'butterfly',spells:['幻蝶・霧花輪','雲水雙瀑','浮夢蝶舞','蒼霧千瓣']},
+ {name:'緋月守衛',accent:'#ffd080',second:'#dca4ff',emblem:'seal',spells:['禁書・封印陣','金符交叉','咒紋護輪','赤金連符']},
+ {name:'緋月之主',accent:'#ff7897',second:'#ffc09b',emblem:'wings',spells:['血薔薇・蝠翼','緋刃雙斬','紅夜圓舞','薔薇獵陣']},
+ {name:'深紅使徒',accent:'#ca9aff',second:'#ff82b1',emblem:'cross',spells:['深淵十字','咒炎追跡','逆轉星環','冥火交響']},
+ {name:'紅月終焉',accent:'#ff8b9a',second:'#ffd18b',emblem:'eclipse',spells:['終焉・血月星輪','皇冠・流星雨','緋月雙重奏','天蝕・萬華鏡']}
+];
+function bossProfile(b,stage=game.stage){return BOSS_PROFILES[(stage-1)*2+(b.kind==='end'?1:0)]}
 function pattern(b){
- b.cast=.48;b.attackType=b.phase%4;
- const p=game.player,a=Math.atan2(p.y-b.y,p.x-b.x),lvl=game.stage,phase=b.phase%4;
- const finalRage=lvl===3&&b.kind==='end'&&b.hp<b.max*.5;
- const speed=finalRage?1.13:1,turn=finalRage?1.18:1;
- const palette=[['#ff91b4','#a6c9ff','#ffe0ad'],['#ff88a9','#c4a8ff','#ffd49f'],['#ff739b','#b6b7ff','#ffd09b']][lvl-1];
- if(phase===0){
-   // Alternating clockwise/counterclockwise petals form a rotating flower.
-   const count=(b.kind==='mid'?16:20+lvl*2)+(finalRage?4:0);
-   for(let i=0;i<count;i++){
-     const angle=i*Math.PI*2/count+b.t*.22;
-     fireBullet(b.x,b.y,angle,(92+lvl*9)*speed,palette[i%2],5,
-       {shape:'petal',curve:(i%2?1:-1)*(.35+lvl*.035)*turn,curveTime:2.3});
-   }
- }else if(phase===1){
-   // Curved aimed needles leave a readable opening around the middle.
-   const half=lvl===1?4:5;
-   for(let i=-half;i<=half;i++)fireBullet(b.x,b.y,a+i*.16,(125+lvl*8)*speed,
-     palette[(i+half)%3],4,{shape:'needle',curve:i===0?0:Math.sign(i)*.27*turn,curveTime:1.7});
- }else if(phase===2){
-   // Two counter-rotating rings create interleaving spiral arms.
-   const count=b.kind==='mid'?8:9+lvl;
-   for(let ring=0;ring<2;ring++)for(let i=0;i<count;i++){
-     const angle=b.t*.52+i*Math.PI*2/count+ring*.18;
-     fireBullet(b.x,b.y,angle,(88+ring*29+lvl*5)*speed,palette[ring?1:0],4,
-       {shape:ring?'crystal':'orb',curve:(ring?-.58:.58)*turn,curveTime:2.1});
-   }
- }else{
-   // Layered fans bend in opposite directions to form expanding arcs.
-   const half=lvl===3?4:3;
-   for(let row=0;row<3;row++)for(let i=-half;i<=half;i++){
-     const angle=a+i*.17+(row-1)*.055;
-     fireBullet(b.x,b.y,angle,(100+row*22+lvl*5)*speed,palette[row],4,
-       {shape:row===1?'needle':'petal',curve:(row-1)*.32*turn,curveTime:1.8});
-   }
+ const p=game.player,a=Math.atan2(p.y-b.y,p.x-b.x),phase=b.phase%4;
+ const id=(game.stage-1)*2+(b.kind==='end'?1:0),profile=BOSS_PROFILES[id];
+ const rage=id===5&&b.hp<b.max*.5,boost=rage?1.12:1;
+ b.cast=.56;b.attackType=phase;b.spellName=profile.spells[phase];
+ const shot=(angle,speed,shape,color,curve=0,weave=0,x=0)=>fireBullet(b.x+x,b.y,angle,speed*boost,color,5,
+   {shape,boss:true,curve:curve*(rage?1.12:1),curveTime:2.2,weave,weaveRate:3.2,weavePhase:angle});
+ const ring=(n,offset,speed,shape,colors,curve=0,weave=0)=>{
+   for(let i=0;i<n;i++)shot(offset+i*Math.PI*2/n,speed,shape,colors[i%colors.length],typeof curve==='function'?curve(i):curve,weave);
+ };
+ const fan=(n,center,spread,speed,shape,colors,curve=0,weave=0)=>{
+   for(let i=0;i<n;i++){let q=n===1?0:(i/(n-1)-.5)*2;shot(center+q*spread,speed,shape,colors[i%colors.length],typeof curve==='function'?curve(q,i):curve,weave)}
+ };
+ const c=profile.accent,d=profile.second,spin=b.t*.34;
+ switch(id){
+ case 0: // Mist guardian: spellbook seals and violet quills.
+   if(phase===0){ring(16,spin,91,'sigil',[c,d],i=>i%2?.38:-.38);ring(8,-spin,128,'feather',[d],-.28)}
+   else if(phase===1){fan(7,a-.23,.45,120,'feather',[c,d],-.4,5);fan(7,a+.23,.45,120,'feather',[d,c],.4,5)}
+   else if(phase===2){for(let row=0;row<3;row++)fan(5,a+(row-1)*.09,.5,91+row*22,'sigil',[c,d],(row-1)*.22)}
+   else{ring(12,spin,101,'sigil',[c,d],.55);ring(8,-spin,136,'feather',[d],-.45)}
+   break;
+ case 1: // The mist phantom paints floating butterfly and teardrop arcs.
+   if(phase===0){ring(18,spin,91,'butterfly',[c,d],i=>i%2?.55:-.55,13);ring(8,-spin,126,'droplet',[c],-.28)}
+   else if(phase===1){fan(9,a-.28,.58,111,'droplet',[c,d],-.5,7);fan(9,a+.28,.58,111,'droplet',[d,c],.5,7)}
+   else if(phase===2){ring(12,spin,99,'butterfly',[d,c],.7,14);ring(12,-spin,124,'butterfly',[c,d],-.7,14)}
+   else{for(let row=0;row<3;row++)fan(7,a+(row-1)*.13,.76,90+row*22,row===1?'butterfly':'droplet',[c,d],(row-1)*.42,9)}
+   break;
+ case 2: // Scarlet guard: structured gold wards, diagonal lines and seals.
+   if(phase===0){ring(12,Math.PI/4+spin,101,'ward',[c,d],.18);ring(12,-spin,138,'sigil',[d,c],-.22)}
+   else if(phase===1){for(let row=0;row<3;row++)fan(6,a+(row-1)*.22,.52,100+row*22,'ward',[c,d],(row-1)*.26)}
+   else if(phase===2){ring(20,spin,103,'ward',[c,d],i=>i%2?.35:-.35);fan(5,a,.3,158,'sigil',[d],0)}
+   else{fan(9,a-.35,.7,122,'sigil',[c,d],.36);fan(9,a+.35,.7,122,'ward',[d,c],-.36)}
+   break;
+ case 3: // Scarlet mistress: bat swarms and curved rose-blades.
+   if(phase===0){ring(18,spin,105,'bat',[c,d],i=>i%2?.52:-.52,9);ring(8,-spin,145,'blade',[d],.28)}
+   else if(phase===1){fan(9,a-.28,.68,145,'blade',[c,d],-.62);fan(9,a+.28,.68,145,'blade',[d,c],.62)}
+   else if(phase===2){ring(14,spin,96,'bat',[c,d],.72,12);ring(14,-spin,127,'blade',[d,c],-.6)}
+   else{for(let row=0;row<3;row++)fan(7,a+(row-1)*.11,.8,110+row*24,row===1?'bat':'blade',[c,d],(row-1)*.55,row===1?8:0)}
+   break;
+ case 4: // Crimson apostle: occult crosses and curling violet flames.
+   if(phase===0){ring(16,Math.PI/4+spin,108,'cross',[c,d],i=>i%2?.3:-.3);ring(8,-spin,140,'flame',[d],.48,7)}
+   else if(phase===1){fan(9,a,.75,119,'flame',[c,d],q=>q*.7,15);fan(5,a,.4,150,'cross',[d],-.18)}
+   else if(phase===2){ring(12,spin,100,'cross',[c,d],.68);ring(12,-spin,130,'cross',[d,c],-.68)}
+   else{for(let row=0;row<3;row++)fan(7,a+(row-1)*.2,.68,104+row*24,row===1?'cross':'flame',[c,d],(row-1)*.48,8)}
+   break;
+ case 5: // Final queen: crescents and stars in an unmistakable eclipse.
+   if(phase===0){ring(rage?24:20,spin,112,'moon',[c,d],i=>i%2?.58:-.58);ring(10,-spin,146,'star',[d,c],-.45)}
+   else if(phase===1){for(let row=0;row<3;row++)fan(9,a+(row-1)*.12,.78,118+row*23,row===1?'moon':'star',[c,d],(row-1)*.5,5)}
+   else if(phase===2){ring(16,spin,102,'moon',[c,d],.76);ring(16,-spin,137,'moon',[d,c],-.76);ring(8,spin*.5,165,'star',[d],.2)}
+   else{for(let row=0;row<3;row++)fan(rage?11:9,a+(row-1)*.13,.95,110+row*24,row===1?'star':'moon',[c,d],(row-1)*.58,5)}
+   break;
  }
  b.phase++;
 }
@@ -185,10 +216,40 @@ function drawPlayerShot(s){
 }
 function drawEnemyBullet(z){
  ctx.save();ctx.translate(z.x,z.y);ctx.rotate(Math.atan2(z.vy,z.vx)+Math.PI/2);
- // Translucent halos are cheaper than a separate canvas shadow per bullet.
- circle(0,0,z.r*1.8,z.color+'38');
+ // Boss bullets have an extra halo and a silhouette of their own; ordinary
+ // enemies retain their smaller petal/crystal vocabulary.
+ if(z.boss)circle(0,0,z.r*2.45,z.color+'22');
+ circle(0,0,z.r*(z.boss?1.95:1.8),z.color+(z.boss?'55':'38'));
  ctx.fillStyle=z.color;ctx.strokeStyle='#fff0eacc';ctx.lineWidth=.8;
- if(z.shape==='petal'){
+ const r=z.r;
+ if(z.shape==='sigil'){
+   ctx.fillRect(-r*.8,-r*1.5,r*1.6,r*3);ctx.strokeRect(-r*.8,-r*1.5,r*1.6,r*3);
+   ctx.strokeStyle='#fff8eeee';ctx.beginPath();ctx.moveTo(0,-r);ctx.lineTo(0,r);ctx.moveTo(-r*.48,0);ctx.lineTo(r*.48,0);ctx.stroke();
+ }else if(z.shape==='feather'){
+   ctx.beginPath();ctx.moveTo(0,-r*2.2);ctx.quadraticCurveTo(r*1.3,-r*.5,r*.55,r);ctx.lineTo(0,r*1.7);ctx.quadraticCurveTo(-r*1.2,r*.5,0,-r*2.2);ctx.fill();ctx.stroke();
+   ctx.beginPath();ctx.moveTo(0,-r*1.5);ctx.lineTo(0,r);ctx.stroke();
+ }else if(z.shape==='butterfly'){
+   ctx.beginPath();ctx.moveTo(0,-r*.65);ctx.quadraticCurveTo(-r*2.1,-r*2,-r*1.7,r*.25);ctx.quadraticCurveTo(-r*1.5,r*1.7,0,r*.65);ctx.quadraticCurveTo(r*1.5,r*1.7,r*1.7,r*.25);ctx.quadraticCurveTo(r*2.1,-r*2,0,-r*.65);ctx.fill();ctx.stroke();
+   ctx.fillStyle='#fff8ef';ctx.fillRect(-1,-r*.7,2,r*1.5);
+ }else if(z.shape==='droplet'){
+   ctx.beginPath();ctx.moveTo(0,-r*2.1);ctx.bezierCurveTo(r*1.5,-r*.5,r*1.35,r*.8,0,r*1.45);ctx.bezierCurveTo(-r*1.35,r*.8,-r*1.5,-r*.5,0,-r*2.1);ctx.fill();ctx.stroke();
+ }else if(z.shape==='ward'){
+   ctx.beginPath();ctx.moveTo(0,-r*1.8);ctx.lineTo(r*1.4,0);ctx.lineTo(0,r*1.8);ctx.lineTo(-r*1.4,0);ctx.closePath();ctx.fill();ctx.stroke();
+   ctx.strokeStyle='#fff8eeee';ctx.beginPath();ctx.moveTo(-r*.7,0);ctx.lineTo(r*.7,0);ctx.moveTo(0,-r);ctx.lineTo(0,r);ctx.stroke();
+ }else if(z.shape==='bat'){
+   ctx.beginPath();ctx.moveTo(0,-r);ctx.quadraticCurveTo(-r*1.25,-r*2,-r*2.2,-r*.7);ctx.lineTo(-r*1.5,r*.85);ctx.lineTo(-r*.8,r*.32);ctx.lineTo(0,r*1.3);ctx.lineTo(r*.8,r*.32);ctx.lineTo(r*1.5,r*.85);ctx.lineTo(r*2.2,-r*.7);ctx.quadraticCurveTo(r*1.25,-r*2,0,-r);ctx.fill();ctx.stroke();
+ }else if(z.shape==='blade'){
+   ctx.beginPath();ctx.moveTo(0,-r*2.7);ctx.lineTo(r*.78,r*.35);ctx.lineTo(0,r*1.6);ctx.lineTo(-r*.78,r*.35);ctx.closePath();ctx.fill();ctx.stroke();
+   ctx.beginPath();ctx.moveTo(0,-r*1.9);ctx.lineTo(0,r*.9);ctx.stroke();
+ }else if(z.shape==='cross'){
+   ctx.beginPath();ctx.moveTo(-r*.42,-r*1.8);ctx.lineTo(r*.42,-r*1.8);ctx.lineTo(r*.42,-r*.42);ctx.lineTo(r*1.5,-r*.42);ctx.lineTo(r*1.5,r*.42);ctx.lineTo(r*.42,r*.42);ctx.lineTo(r*.42,r*1.8);ctx.lineTo(-r*.42,r*1.8);ctx.lineTo(-r*.42,r*.42);ctx.lineTo(-r*1.5,r*.42);ctx.lineTo(-r*1.5,-r*.42);ctx.lineTo(-r*.42,-r*.42);ctx.closePath();ctx.fill();ctx.stroke();
+ }else if(z.shape==='flame'){
+   ctx.beginPath();ctx.moveTo(0,-r*2.2);ctx.quadraticCurveTo(r*1.6,-r*.4,r*.9,r*.8);ctx.quadraticCurveTo(0,r*1.8,-r*.9,r*.8);ctx.quadraticCurveTo(-r*1.3,-r*.25,0,-r*2.2);ctx.fill();ctx.stroke();
+ }else if(z.shape==='moon'){
+   ctx.beginPath();ctx.moveTo(r*.8,-r*1.8);ctx.bezierCurveTo(-r*1.8,-r*1.6,-r*1.8,r*1.6,r*.8,r*1.8);ctx.bezierCurveTo(-r*.2,r*.7,-r*.2,-r*.7,r*.8,-r*1.8);ctx.fill();ctx.stroke();
+ }else if(z.shape==='star'){
+   ctx.rotate((z.age||0)*2);ctx.beginPath();for(let i=0;i<10;i++){let a=i*Math.PI/5-Math.PI/2,d=i%2?r*.58:r*1.8;i?ctx.lineTo(Math.cos(a)*d,Math.sin(a)*d):ctx.moveTo(Math.cos(a)*d,Math.sin(a)*d)}ctx.closePath();ctx.fill();ctx.stroke();
+ }else if(z.shape==='petal'){
    ctx.beginPath();ctx.moveTo(0,-z.r*2.1);ctx.quadraticCurveTo(z.r*1.45,-z.r*.2,z.r*.8,z.r);
    ctx.quadraticCurveTo(0,z.r*1.8,-z.r*.8,z.r);ctx.quadraticCurveTo(-z.r*1.45,-z.r*.2,0,-z.r*2.1);ctx.fill();ctx.stroke();
  }else if(z.shape==='crystal'){
@@ -214,11 +275,19 @@ function drawEnemy(e){
 }
 function drawBoss(b,stage){
  ctx.save();ctx.translate(b.x,b.y+Math.sin(b.t*3)*3);
- const enraged=b.hp<b.max*.5,colour=['#9bcde6','#f07b9d','#e99cfb'][stage-1];
+ const enraged=b.hp<b.max*.5,profile=bossProfile(b,stage),colour=profile.accent;
  ctx.shadowBlur=enraged?25:13;ctx.shadowColor=colour;
  rune(0,0,enraged?62:51,enraged?'#ff729ddd':colour+'99',b.t*(enraged?.7:.3));
  if(enraged){ctx.strokeStyle='#ff9ebcaa';ctx.lineWidth=3;for(let i=0;i<4;i++){let a=b.t*1.5+i*Math.PI/2;ctx.beginPath();ctx.moveTo(Math.cos(a)*53,Math.sin(a)*35);ctx.lineTo(Math.cos(a)*69,Math.sin(a)*50);ctx.stroke()}}
- if(b.cast>0){let color=['#ffc8d3','#b7c7ff','#ffbb78','#eaa7ff'][b.attackType];rune(0,0,75+(1-b.cast)*8,color,b.t*(b.attackType%2?1:-1));for(let i=0;i<6;i++){let a=b.t*2+i*Math.PI/3;circle(Math.cos(a)*65,Math.sin(a)*35,4,color)}}
+ if(b.cast>0){
+   const color=profile.second;rune(0,0,75+(1-b.cast)*8,color+'bb',b.t*(b.attackType%2?1:-1));
+   ctx.save();ctx.rotate(b.t*.5);ctx.strokeStyle=colour+'cc';ctx.lineWidth=2;
+   if(profile.emblem==='book'||profile.emblem==='seal'){ctx.strokeRect(-58,-44,116,88);ctx.rotate(Math.PI/4);ctx.strokeRect(-47,-47,94,94)}
+   else if(profile.emblem==='butterfly'||profile.emblem==='wings'){ctx.beginPath();ctx.ellipse(-41,0,32,54,-.45,0,Math.PI*2);ctx.ellipse(41,0,32,54,.45,0,Math.PI*2);ctx.stroke()}
+   else if(profile.emblem==='cross'){ctx.beginPath();ctx.moveTo(-69,0);ctx.lineTo(69,0);ctx.moveTo(0,-69);ctx.lineTo(0,69);ctx.stroke()}
+   else{ctx.beginPath();ctx.arc(0,0,65,0,Math.PI*2);ctx.arc(15,-7,48,0,Math.PI*2);ctx.stroke()}
+   ctx.restore();for(let i=0;i<6;i++){let a=b.t*2+i*Math.PI/3;circle(Math.cos(a)*65,Math.sin(a)*35,4,color)}
+ }
  ctx.rotate(Math.sin(b.t*1.7)*.035);ctx.filter=b.hitfx>0?'brightness(2)':enraged?'saturate(1.5) brightness(1.12)':'none';
  sprite(sprites[b.kind==='mid'?'midboss':stage===3&&enraged?'boss3_rage':'boss'+stage],b.kind==='mid'?108:130,b.kind==='mid'?126:150);
  ctx.restore();
@@ -243,7 +312,7 @@ if(g.stage===3){
 for(const s of g.stars){ctx.fillStyle='#ffd2c7aa';ctx.fillRect(s.x,s.y,s.s,s.s)}
 for(const shot of g.shots)drawPlayerShot(shot);
 for(const e of g.enemies)drawEnemy(e);
-if(g.boss){let b=g.boss;drawBoss(b,g.stage);ctx.fillStyle='#332235';ctx.fillRect(28,22,W-56,5);ctx.fillStyle='#ef9ba9';ctx.fillRect(28,22,(W-56)*Math.max(0,b.hp/b.max),5);ctx.fillStyle='#f2d6d4';ctx.font='11px serif';ctx.fillText(b.kind==='mid'?['MID BOSS  ·  霧之守護者','MID BOSS  ·  緋月守衛','MID BOSS  ·  深紅使徒'][g.stage-1]:['BOSS  ·  霧之幻影','BOSS  ·  緋月之主','FINAL BOSS  ·  紅月終焉'][g.stage-1],28,17)}
+if(g.boss){let b=g.boss,profile=bossProfile(b,g.stage);drawBoss(b,g.stage);ctx.fillStyle='#332235';ctx.fillRect(28,22,W-56,5);ctx.fillStyle=profile.accent;ctx.fillRect(28,22,(W-56)*Math.max(0,b.hp/b.max),5);ctx.fillStyle='#fff0e9';ctx.font='13px serif';ctx.fillText((b.kind==='mid'?'MID BOSS  ·  ':'BOSS  ·  ')+profile.name,28,17);if(b.spellName){ctx.textAlign='right';ctx.fillStyle=profile.second;ctx.font='13px serif';ctx.fillText('✦ '+b.spellName,W-28,45);ctx.textAlign='start'}}
 for(const z of g.bullets)drawEnemyBullet(z);
 for(const i of g.items){ctx.save();ctx.translate(i.x,i.y);ctx.rotate(Math.PI/4);ctx.shadowBlur=13;ctx.shadowColor='#ffd78d';ctx.fillStyle=i.type==='power'?'#8d7aca':'#bf5264';ctx.fillRect(-9,-9,18,18);ctx.strokeStyle='#ffe3a8';ctx.strokeRect(-9,-9,18,18);ctx.restore();ctx.fillStyle='#fff4d2';ctx.font='bold 12px serif';ctx.textAlign='center';ctx.fillText(i.type==='power'?'P':'B',i.x,i.y+4);ctx.textAlign='start'}
 let p=g.player;drawPlayer(p,g.background);
