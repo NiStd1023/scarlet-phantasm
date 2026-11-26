@@ -4,7 +4,7 @@ const $=id=>document.getElementById(id), W=480,H=720, keys=new Set();
 const art=new Image();art.src='key-art.png';
 const sprites={};
 for(const key of ['player','player_cast','enemy','enemy_cast','midboss','boss1','boss2','boss3','boss3_rage']){const img=new Image();img.src='assets/'+key+'.webp';sprites[key]=img;}
-let state='title', prev=0, game, dragging=false, lastPointer=null, focusTouch=false, soundOn=true, audio=null;
+let state='title', prev=0, game, dragging=false, lastPointer=null, focusTouch=false, soundOn=true, audio=null, effectBus=null;
 // Level 1 is the original game. Each later level increases pressure while
 // keeping the same boss identities, player hitbox, lives, and BOMB rules.
 const DIFFICULTY_LEVELS=[
@@ -30,8 +30,9 @@ function selectDifficulty(value){
 $('difficulty').addEventListener('change',e=>selectDifficulty(e.target.value));
 selectDifficulty(selectedDifficulty);
 const musicAudio=$('bgm');
-musicAudio.loop=true; musicAudio.preload='auto'; musicAudio.volume=.8;
-let musicTrack='stage1', musicBlocked=false, musicRequest=0, previewing=false;
+const MUSIC_VOLUME=.8, DUCK_VOLUME=.28, DUCK_HOLD=.25, DUCK_RELEASE=.3;
+musicAudio.loop=true; musicAudio.preload='auto'; musicAudio.volume=MUSIC_VOLUME;
+let musicTrack='stage1', musicBlocked=false, musicRequest=0, previewing=false, musicDuckHoldUntil=0, musicDuckEnd=0;
 const trackNames={stage1:'霧之森・戰鬥曲',boss1:'霧之森・頭目曲',stage2:'緋月之庭・戰鬥曲',boss2:'緋月之庭・頭目曲',stage3:'紅月終焉・戰鬥曲',boss3:'紅月終焉・頭目曲'};
 function audioStatus(){
   $('sound').textContent=soundOn?'♫':'♪̸';
@@ -50,7 +51,7 @@ function playMusic(track=musicTrack){
     if(request===musicRequest&&soundOn&&(state==='play'||previewing)){musicBlocked=true;audioStatus();}
   });}catch(e){musicBlocked=true;audioStatus();}
 }
-function pauseMusic(){musicRequest++;musicAudio.pause();}
+function pauseMusic(){musicRequest++;musicAudio.pause();musicDuckHoldUntil=0;musicDuckEnd=0;musicAudio.volume=MUSIC_VOLUME;}
 musicAudio.addEventListener('error',()=>{if(soundOn&&(state==='play'||previewing)){musicBlocked=true;audioStatus();}});
 musicAudio.addEventListener('playing',audioStatus);
 musicAudio.addEventListener('pause',audioStatus);
@@ -63,20 +64,32 @@ function previewMusic(n){
 for(let i=1;i<=3;i++)$('preview'+i).addEventListener('click',()=>previewMusic(i));
 
 let high=0;try{high=Number(localStorage.getItem('scarlet-high'))||0}catch(e){}; $('high').textContent=String(high).padStart(8,'0');
-function sound(freq=440,duration=.09,type='sine',vol=.035,slide=1,delay=0){if(!soundOn||!audio)return;let t=audio.currentTime+delay,o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,t);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*slide),t+duration);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+duration);o.connect(g).connect(audio.destination);o.start(t);o.stop(t+duration+.01)}
+function sound(freq=440,duration=.09,type='sine',vol=.035,slide=1,delay=0,hold=0){if(!soundOn||!audio)return;let t=audio.currentTime+delay,o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,t);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*slide),t+duration);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.008);if(hold>.008&&hold<duration)g.gain.setValueAtTime(vol,t+hold);g.gain.exponentialRampToValueAtTime(.0001,t+duration);o.connect(g).connect(effectBus||audio.destination);o.start(t);o.stop(t+duration+.01)}
+function duckMusic(){
+ if(!soundOn||!audio)return;
+ musicDuckHoldUntil=audio.currentTime+DUCK_HOLD;musicDuckEnd=musicDuckHoldUntil+DUCK_RELEASE;
+ musicAudio.volume=DUCK_VOLUME;
+}
+function updateMusicMix(){
+ if(!audio||!musicDuckEnd)return;
+ const recovery=Math.max(0,Math.min(1,(audio.currentTime-musicDuckHoldUntil)/DUCK_RELEASE));
+ musicAudio.volume=DUCK_VOLUME+(MUSIC_VOLUME-DUCK_VOLUME)*recovery;
+ if(recovery>=1){musicDuckHoldUntil=0;musicDuckEnd=0}
+}
 function pickupSound(type){
  // Short rising phrases make power and bomb pickups recognizable in battle.
+ duckMusic();
  const notes=type==='power'?[660,880,1175]:[523,698,1047];
- notes.forEach((freq,i)=>sound(freq,.12+i*.025,i===2?'sine':'triangle',.035,1.12,i*.07));
+ notes.forEach((freq,i)=>sound(freq,.19+i*.025,i===2?'sine':'triangle',.17,1.12,i*.07,.075));
 }
 function hitFeedback(){
- sound(210,.28,'sawtooth',.055,.38);sound(460,.18,'triangle',.035,.48);
+ duckMusic();sound(210,.28,'sawtooth',.2,.38,0,.09);sound(460,.21,'triangle',.14,.48,0,.07);
  // Shake only the artwork: the frame and controls retain their layout.
  canvas.classList.remove('hit-shake');void canvas.offsetWidth;canvas.classList.add('hit-shake');
  try{if(typeof navigator!=='undefined'&&typeof navigator.vibrate==='function')navigator.vibrate([55,35,75])}catch(e){}
 }
 canvas.addEventListener('animationend',e=>{if(e.animationName==='hit-shake')canvas.classList.remove('hit-shake')});
-function initAudio(){try{if(!audio)audio=new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume()}catch(e){}}
+function initAudio(){try{if(!audio){audio=new(window.AudioContext||window.webkitAudioContext)();try{if(typeof audio.createDynamicsCompressor==='function'){const limiter=audio.createDynamicsCompressor();limiter.threshold.value=-8;limiter.knee.value=6;limiter.ratio.value=12;limiter.attack.value=.003;limiter.release.value=.1;limiter.connect(audio.destination);effectBus=limiter}}catch(e){effectBus=null}}if(audio.state==='suspended')audio.resume()}catch(e){}}
 function reset(){canvas.classList.remove('hit-shake');game={difficulty:selectedDifficulty,stage:1,time:0,score:0,lives:3,bombs:3,player:{x:W/2,y:H-105,inv:2,shot:0,power:1,cast:0,lean:0,shotGlow:0,hurt:0,focus:false,volley:0},bullets:[],shots:[],enemies:[],items:[],particles:[],stars:Array.from({length:50},()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.7+.4,v:Math.random()*30+10})),spawn:1,enemyCount:0,mid:false,end:false,boss:null,flash:0,background:0};updateHUD()}
 function updateHUD(){$('lives').textContent='♥ '.repeat(game.lives).trim()||'—';$('bombs').textContent='✦ '.repeat(game.bombs).trim()||'—';$('score').textContent=String(game.score).padStart(8,'0');$('weapon').textContent='Lv. '+game.player.power;$('stageLabel').textContent=`STAGE 0${game.stage}`;$('stageName').textContent=['霧之森','緋月之庭','紅月終焉'][game.stage-1];$('difficultyLabel').textContent='難度 Lv.'+game.difficulty;$('high').textContent=String(Math.max(high,game.score)).padStart(8,'0')}
 let noticeTimer=0;function notice(text){$('notice').textContent=text;$('notice').classList.add('show');noticeTimer=2.2}
@@ -356,7 +369,7 @@ for(const z of g.bullets)drawEnemyBullet(z);
 for(const i of g.items){ctx.save();ctx.translate(i.x,i.y);ctx.rotate(Math.PI/4);ctx.shadowBlur=13;ctx.shadowColor='#ffd78d';ctx.fillStyle=i.type==='power'?'#8d7aca':'#bf5264';ctx.fillRect(-9,-9,18,18);ctx.strokeStyle='#ffe3a8';ctx.strokeRect(-9,-9,18,18);ctx.restore();ctx.fillStyle='#fff4d2';ctx.font='bold 12px serif';ctx.textAlign='center';ctx.fillText(i.type==='power'?'P':'B',i.x,i.y+4);ctx.textAlign='start'}
 let p=g.player;drawPlayer(p,g.background);
 for(const q of g.particles){ctx.globalAlpha=Math.max(0,q.life);circle(q.x,q.y,2,q.color)}ctx.globalAlpha=1;if(g.flash>0){ctx.fillStyle=`rgba(255,230,220,${g.flash*.48})`;ctx.fillRect(0,0,W,H)} }
-function loop(t){let dt=Math.min(.033,(t-(prev||t))/1000);prev=t;update(dt);draw();requestAnimationFrame(loop)}
+function loop(t){let dt=Math.min(.033,(t-(prev||t))/1000);prev=t;updateMusicMix();update(dt);draw();requestAnimationFrame(loop)}
 $('start').addEventListener('click',()=>{if(state==='pause'){initAudio();state='play';playMusic();$('overlay').classList.add('hidden')}else start()});$('bombBtn').addEventListener('pointerdown',e=>{e.preventDefault();bomb()});$('focusBtn').addEventListener('pointerdown',e=>{e.preventDefault();focusTouch=true;$('focusBtn').classList.add('active');$('focusBtn').setPointerCapture(e.pointerId)});for(const type of ['pointerup','pointercancel','lostpointercapture'])$('focusBtn').addEventListener(type,()=>{focusTouch=false;$('focusBtn').classList.remove('active')});
 function pause(){if(state==='play'){state='pause';pauseMusic();$('overlayText').textContent='稍作休息，準備好再繼續。';$('start').innerHTML='繼續遊戲 <span>✦</span>';$('overlay').classList.remove('hidden');}else if(state==='pause'){$('start').click()}}
 $('pause').addEventListener('click',pause);$('sound').addEventListener('click',()=>{
