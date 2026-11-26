@@ -19,9 +19,12 @@ python3 -m http.server 4173 --directory dist
 | `dist/index.html` | 版面、遊戲按鈕與音樂元素 |
 | `dist/style.css` | 電腦與手機版面樣式 |
 | `dist/game.js` | 遊戲循環、角色、敵人、彈幕、碰撞、操作與音效 |
+| `dist/manifest.webmanifest`、`dist/pwa.js`、`dist/sw.js` | 安裝設定、安裝按鈕與離線快取 |
+| `dist/icons/` | 安裝圖示與 Apple 裝置圖示 |
 | `dist/assets/`、`dist/key-art.png` | 角色與背景圖像 |
 | `dist/music/` | 三個關卡與頭目配樂；音色檔及其授權文件位於 `licenses/` |
 | `tools/generate_music.py` | 配樂作曲及音檔產生程式 |
+| `tools/generate_pwa_icons.py` | 從現有角色圖產生 PWA 圖示（需要 Pillow） |
 | `tests/` | 遊戲邏輯與配樂結構檢查 |
 | `.openai/hosting.json` | 既有網站識別與靜態部署設定 |
 
@@ -30,10 +33,21 @@ python3 -m http.server 4173 --directory dist
 ```bash
 node --check dist/game.js
 node tests/game-logic.test.cjs
+node tests/pwa.test.cjs
 python3 tests/music-structure.test.py
 ```
 
 遊戲邏輯測試需要 Node.js。配樂結構測試會載入作曲模組，需要 Python 3、NumPy 與 `libfluidsynth.so.3`；重新產生音樂時還需要 FFmpeg。一般遊玩與只修改網頁不需要這些音樂製作依賴。
+
+## 安裝與離線遊玩
+
+- Android：用 Chrome 開啟遊戲，選擇「安裝遊戲」或瀏覽器選單中的安裝／加入主畫面。
+- iPhone、iPad：使用 Safari 開啟遊戲，點「分享」並選擇「加入主畫面」。
+- 電腦：使用支援 PWA 的瀏覽器，可從網址列或選單安裝遊戲。
+
+第一次請保持網路連線，等待遊戲素材與配樂完成快取；之後可從安裝圖示離線開啟。離線功能需要瀏覽器允許網站儲存資料，清除網站資料會移除快取和本機紀錄。兩個公開網址各自擁有獨立的安裝項目與本機紀錄。外部字型無法連線時會使用裝置的替代字型。
+
+離線功能需要 HTTPS 或本機 localhost。每次更新預先快取的檔案，請遞增 `dist/sw.js` 的快取版本；變動 CSS 或 JS 時同步更新 `index.html` 和 service worker 清單中的版本參數。新版快取完整建立後才會取代舊版。
 
 ## 操作
 

@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "緋夜幻彈 Scarlet Phantasm",
+  "short_name": "緋夜幻彈",
+  "description": "穿越緋色彈幕，迎戰紅月下的守護者。",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0a15",
+  "theme_color": "#0b0a15",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

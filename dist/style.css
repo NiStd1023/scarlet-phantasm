@@ -30,3 +30,13 @@ canvas.hit-shake{animation:hit-shake .32s ease-out both}
   100%{transform:none}
 }
 @media(prefers-reduced-motion:reduce){canvas.hit-shake{animation:none}}
+
+/* Keep installation available without covering the game controls. */
+.installbtn{border:1px solid #a96974;background:#38202b;color:#ffe2d3;min-height:37px;padding:0 10px;font:600 12px system-ui,sans-serif;white-space:nowrap}
+.installbtn:hover{border-color:#e7b5a0;background:#57303d}
+.installbtn:focus-visible{outline:2px solid #ffe1a8;outline-offset:2px}
+.installbtn[hidden]{display:none}
+.offline-status{display:block;margin-top:9px;color:#d8b6a7;font:11px system-ui,sans-serif;letter-spacing:.04em}
+.offline-status[hidden]{display:none}
+@media(max-width:380px){.topright{gap:6px}.installbtn{padding:0 7px;font-size:11px}.brand{gap:6px}.brand strong{letter-spacing:.08em}}
+@media(display-mode:standalone){body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}.shell{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}}
